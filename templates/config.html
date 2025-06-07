@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+
+{% block title %}Configuration - Synology NAS Shutdown{% endblock %}
+{% block header %}Configuration{% endblock %}
+{% block subtitle %}Current NAS connection settings{% endblock %}
+
+{% block content %}
+<div class="config-info">
+    <h3>Current Configuration</h3>
+    
+    <div class="config-item">
+        <strong>Host:</strong> {{ config.host or 'Not configured' }}
+    </div>
+    
+    <div class="config-item">
+        <strong>Username:</strong> {{ config.username or 'Not configured' }}
+    </div>
+    
+    <div class="config-item">
+        <strong>Password:</strong> {{ config.password or 'Not configured' }}
+    </div>
+    
+    <div class="config-item">
+        <strong>Port:</strong> {{ config.port or 5000 }}
+    </div>
+    
+    <div class="config-item">
+        <strong>HTTPS:</strong> {{ 'Yes' if config.use_https else 'No' }}
+    </div>
+    
+    <div class="config-item">
+        <strong>SSH Port:</strong> {{ config.ssh_port or 22 }}
+    </div>
+    
+    <div class="config-item">
+        <strong>Use SSH:</strong> {{ 'Yes' if config.use_ssh else 'No' }}
+    </div>
+</div>
+
+<div class="status-card warning" style="text-align: left;">
+    <h4>📝 How to Configure</h4>
+    <p>Configuration can be set via:</p>
+    <ul style="margin: 0.5rem 0 0 1.5rem;">
+        <li><strong>Environment Variables:</strong> SYNOLOGY_HOST, SYNOLOGY_USERNAME, etc.</li>
+        <li><strong>Config File:</strong> Mount /app/config/config.json</li>
+        <li><strong>Docker Compose:</strong> Edit docker-compose.yml</li>
+    </ul>
+</div>
+
+<div class="status-card" style="text-align: left;">
+    <h4>🔧 Example Configuration</h4>
+    <div style="background: #2c3e50; color: #ecf0f1; padding: 1rem; border-radius: 4px; font-family: monospace; margin-top: 0.5rem;">
+        <div>SYNOLOGY_HOST=192.168.1.100</div>
+        <div>SYNOLOGY_USERNAME=admin</div>
+        <div>SYNOLOGY_PASSWORD=yourpassword</div>
+        <div>SYNOLOGY_PORT=5000</div>
+        <div>SYNOLOGY_HTTPS=true</div>
+    </div>
+</div>
+
+<div style="margin: 2rem 0;">
+    <a href="/" class="btn secondary">← Back to Shutdown</a>
+</div>
+{% endblock %}

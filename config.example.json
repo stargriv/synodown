@@ -1,0 +1,9 @@
+{
+  "host": "192.168.1.100",
+  "username": "admin",
+  "password": "your-password",
+  "port": 5000,
+  "use_https": true,
+  "ssh_port": 22,
+  "use_ssh": false
+}

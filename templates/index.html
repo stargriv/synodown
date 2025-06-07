@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="config-info">
+    <h3>NAS Information</h3>
+    <div class="config-item">
+        <strong>Host:</strong> {{ nas_host }}
+    </div>
+</div>
+
+<div id="status-container">
+    {% if status.timestamp %}
+    <div class="status-card {% if status.success %}success{% elif status.success == false %}error{% else %}warning{% endif %}">
+        <strong>Last Action:</strong> {{ status.message }}<br>
+        <small>{{ status.timestamp.strftime('%Y-%m-%d %H:%M:%S') if status.timestamp.strftime else status.timestamp }}</small>
+    </div>
+    {% endif %}
+</div>
+
+<div style="margin: 2rem 0;">
+    <button id="shutdown-btn" class="btn" onclick="initiateShutdown()">
+        <span id="shutdown-text">🔴 Shutdown NAS</span>
+    </button>
+</div>
+
+<div class="status-card warning" style="text-align: left;">
+    <h4>⚠️ Warning</h4>
+    <p>This will safely shutdown your Synology NAS. Make sure:</p>
+    <ul style="margin: 0.5rem 0 0 1.5rem;">
+        <li>All important work is saved</li>
+        <li>No critical services are running</li>
+        <li>You have physical access to restart the NAS</li>
+    </ul>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let pollInterval;
+
+function initiateShutdown() {
+    const btn = document.getElementById('shutdown-btn');
+    const text = document.getElementById('shutdown-text');
+    
+    // Disable button and show loading state
+    btn.disabled = true;
+    text.innerHTML = '<span class="loading"></span>Shutting down...';
+    
+    fetch('/shutdown', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateStatus();
+            // Start polling for status updates
+            pollInterval = setInterval(updateStatus, 2000);
+        } else {
+            showError(data.message);
+            resetButton();
+        }
+    })
+    .catch(error => {
+        showError('Network error: ' + error.message);
+        resetButton();
+    });
+}
+
+function updateStatus() {
+    fetch('/status')
+        .then(response => response.json())
+        .then(status => {
+            const container = document.getElementById('status-container');
+            let statusClass = 'warning';
+            
+            if (status.success === true) {
+                statusClass = 'success';
+                clearInterval(pollInterval);
+                resetButton();
+            } else if (status.success === false) {
+                statusClass = 'error';
+                clearInterval(pollInterval);
+                resetButton();
+            }
+            
+            if (status.message) {
+                const timestamp = status.timestamp ? new Date(status.timestamp).toLocaleString() : 'Now';
+                container.innerHTML = `
+                    <div class="status-card ${statusClass}">
+                        <strong>Status:</strong> ${status.message}<br>
+                        <small>${timestamp}</small>
+                    </div>
+                `;
+            }
+            
+            if (!status.in_progress && pollInterval) {
+                clearInterval(pollInterval);
+                resetButton();
+            }
+        })
+        .catch(error => {
+            console.error('Status update error:', error);
+        });
+}
+
+function resetButton() {
+    const btn = document.getElementById('shutdown-btn');
+    const text = document.getElementById('shutdown-text');
+    
+    btn.disabled = false;
+    text.innerHTML = '🔴 Shutdown NAS';
+}
+
+function showError(message) {
+    const container = document.getElementById('status-container');
+    container.innerHTML = `
+        <div class="status-card error">
+            <strong>Error:</strong> ${message}
+        </div>
+    `;
+}
+
+// Auto-update status on page load if there's an active shutdown
+document.addEventListener('DOMContentLoaded', function() {
+    updateStatus();
+});
+</script>
+{% endblock %}
