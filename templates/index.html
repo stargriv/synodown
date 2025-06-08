@@ -18,14 +18,49 @@
 </div>
 
 <div style="margin: 2rem 0;">
+    <h3>Docker Compose Projects</h3>
+    <div style="display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap;">
+        <button id="start-projects-btn" class="btn" onclick="manageProjects('start')" style="background: #28a745;">
+            <span id="start-projects-text">▶️ Start Projects</span>
+        </button>
+        <button id="stop-projects-btn" class="btn" onclick="manageProjects('stop')" style="background: #ffc107; color: #000;">
+            <span id="stop-projects-text">⏹️ Stop Projects</span>
+        </button>
+    </div>
+    
+    <div id="project-status-container">
+        {% if project_status.timestamp %}
+        <div class="status-card {% if project_status.success %}success{% elif project_status.success == false %}error{% else %}warning{% endif %}">
+            <strong>Last Project Action:</strong> {{ project_status.message }}<br>
+            {% if project_status.results %}
+            <small>Results: 
+                {% for project, success in project_status.results.items() %}
+                    {{ project }}: {% if success %}✅{% else %}❌{% endif %}{% if not loop.last %}, {% endif %}
+                {% endfor %}
+            </small><br>
+            {% endif %}
+            <small>{{ project_status.timestamp.strftime('%Y-%m-%d %H:%M:%S') if project_status.timestamp.strftime else project_status.timestamp }}</small>
+        </div>
+        {% endif %}
+    </div>
+    
+    <h3>NAS Management</h3>
     <button id="shutdown-btn" class="btn" onclick="initiateShutdown()">
         <span id="shutdown-text">🔴 Shutdown NAS</span>
     </button>
 </div>
 
 <div class="status-card warning" style="text-align: left;">
-    <h4>⚠️ Warning</h4>
-    <p>This will safely shutdown your Synology NAS. Make sure:</p>
+    <h4>ℹ️ Information</h4>
+    <p><strong>Project Management:</strong> Start/stop the following Docker Compose projects:</p>
+    <ul style="margin: 0.5rem 0 0 1.5rem;">
+        <li><strong>iot</strong> - IoT services and automation</li>
+        <li><strong>jellyfin</strong> - Media server</li>
+        <li><strong>arr-project</strong> - Media management stack</li>
+        <li><strong>watchtower</strong> - Container update management</li>
+    </ul>
+    
+    <p><strong>NAS Shutdown:</strong> This will safely shutdown your Synology NAS. Make sure:</p>
     <ul style="margin: 0.5rem 0 0 1.5rem;">
         <li>All important work is saved</li>
         <li>No critical services are running</li>
@@ -37,6 +72,7 @@
 {% block scripts %}
 <script>
 let pollInterval;
+let projectPollInterval;
 
 function initiateShutdown() {
     const btn = document.getElementById('shutdown-btn');
@@ -106,6 +142,111 @@ function updateStatus() {
         });
 }
 
+function manageProjects(action) {
+    const btnId = action + '-projects-btn';
+    const textId = action + '-projects-text';
+    const btn = document.getElementById(btnId);
+    const text = document.getElementById(textId);
+    
+    // Disable both buttons and show loading state
+    const startBtn = document.getElementById('start-projects-btn');
+    const stopBtn = document.getElementById('stop-projects-btn');
+    startBtn.disabled = true;
+    stopBtn.disabled = true;
+    
+    const actionText = action === 'start' ? 'Starting' : 'Stopping';
+    text.innerHTML = `<span class="loading"></span>${actionText} projects...`;
+    
+    fetch(`/projects/${action}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        }
+    })
+    .then(response => response.json())
+    .then(data => {
+        if (data.success) {
+            updateProjectStatus();
+            // Start polling for status updates
+            projectPollInterval = setInterval(updateProjectStatus, 2000);
+        } else {
+            showProjectError(data.message);
+            resetProjectButtons();
+        }
+    })
+    .catch(error => {
+        showProjectError('Network error: ' + error.message);
+        resetProjectButtons();
+    });
+}
+
+function updateProjectStatus() {
+    fetch('/project-status')
+        .then(response => response.json())
+        .then(status => {
+            const container = document.getElementById('project-status-container');
+            let statusClass = 'warning';
+            
+            if (status.success === true) {
+                statusClass = 'success';
+                clearInterval(projectPollInterval);
+                resetProjectButtons();
+            } else if (status.success === false) {
+                statusClass = 'error';
+                clearInterval(projectPollInterval);
+                resetProjectButtons();
+            }
+            
+            if (status.message) {
+                const timestamp = status.timestamp ? new Date(status.timestamp).toLocaleString() : 'Now';
+                let resultsHtml = '';
+                if (status.results && Object.keys(status.results).length > 0) {
+                    const resultsList = Object.entries(status.results)
+                        .map(([project, success]) => `${project}: ${success ? '✅' : '❌'}`)
+                        .join(', ');
+                    resultsHtml = `<small>Results: ${resultsList}</small><br>`;
+                }
+                
+                container.innerHTML = `
+                    <div class="status-card ${statusClass}">
+                        <strong>Project Status:</strong> ${status.message}<br>
+                        ${resultsHtml}
+                        <small>${timestamp}</small>
+                    </div>
+                `;
+            }
+            
+            if (!status.in_progress && projectPollInterval) {
+                clearInterval(projectPollInterval);
+                resetProjectButtons();
+            }
+        })
+        .catch(error => {
+            console.error('Project status update error:', error);
+        });
+}
+
+function resetProjectButtons() {
+    const startBtn = document.getElementById('start-projects-btn');
+    const stopBtn = document.getElementById('stop-projects-btn');
+    const startText = document.getElementById('start-projects-text');
+    const stopText = document.getElementById('stop-projects-text');
+    
+    startBtn.disabled = false;
+    stopBtn.disabled = false;
+    startText.innerHTML = '▶️ Start Projects';
+    stopText.innerHTML = '⏹️ Stop Projects';
+}
+
+function showProjectError(message) {
+    const container = document.getElementById('project-status-container');
+    container.innerHTML = `
+        <div class="status-card error">
+            <strong>Project Error:</strong> ${message}
+        </div>
+    `;
+}
+
 function resetButton() {
     const btn = document.getElementById('shutdown-btn');
     const text = document.getElementById('shutdown-text');
@@ -123,9 +264,10 @@ function showError(message) {
     `;
 }
 
-// Auto-update status on page load if there's an active shutdown
+// Auto-update status on page load if there's an active shutdown or project management
 document.addEventListener('DOMContentLoaded', function() {
     updateStatus();
+    updateProjectStatus();
 });
 </script>
 {% endblock %}

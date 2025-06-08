@@ -6,6 +6,7 @@ A Docker container that safely shuts down a Synology NAS without requiring UI lo
 
 - **🌐 Web Interface**: Simple web UI with one-click shutdown button
 - **💻 Command Line**: Direct CLI operation for scripts and automation
+- **🐳 Docker Project Management**: Start/stop predefined Docker Compose projects
 - **🔒 Multiple shutdown methods**: DSM Web API and SSH fallback
 - **🛡️ Secure authentication**: Uses admin credentials for proper shutdown
 - **🐳 Docker-ready**: Containerized for easy deployment
@@ -117,6 +118,7 @@ docker-compose up
 
 **Web Interface Features:**
 - 🔴 One-click shutdown button
+- 🐳 Docker project management controls
 - 📊 Real-time status updates
 - ⚙️ Configuration viewer
 - 🛡️ Confirmation dialogs
@@ -136,6 +138,51 @@ docker run --rm synology-shutdown python synology_shutdown.py \
 
 # View CLI help
 docker run --rm synology-shutdown python synology_shutdown.py --help
+```
+
+## Docker Project Management
+
+The application can manage predefined Docker Compose projects on your Synology NAS:
+
+### Predefined Projects
+- **iot**: IoT services and automation
+- **jellyfin**: Media server
+- **arr-project**: Media management stack (Sonarr, Radarr, etc.)
+- **watchtower**: Container update management
+
+### Web Interface Project Management
+
+The web interface provides buttons to:
+- **▶️ Start All Projects**: Starts all predefined Docker Compose projects
+- **⏹️ Stop All Projects**: Stops all predefined Docker Compose projects
+- Real-time status updates during project operations
+
+### CLI Project Management
+
+```bash
+# List all Docker Compose projects
+docker run --rm -e SYNOLOGY_HOST=192.168.1.100 -e SYNOLOGY_USERNAME=admin -e SYNOLOGY_PASSWORD=secret \
+  synology-shutdown python synology_shutdown.py --list-projects
+
+# Start all predefined projects
+docker run --rm -e SYNOLOGY_HOST=192.168.1.100 -e SYNOLOGY_USERNAME=admin -e SYNOLOGY_PASSWORD=secret \
+  synology-shutdown python synology_shutdown.py --start-projects
+
+# Stop all predefined projects
+docker run --rm -e SYNOLOGY_HOST=192.168.1.100 -e SYNOLOGY_USERNAME=admin -e SYNOLOGY_PASSWORD=secret \
+  synology-shutdown python synology_shutdown.py --stop-projects
+
+# Start specific project
+docker run --rm -e SYNOLOGY_HOST=192.168.1.100 -e SYNOLOGY_USERNAME=admin -e SYNOLOGY_PASSWORD=secret \
+  synology-shutdown python synology_shutdown.py --start-project jellyfin
+
+# Stop specific project
+docker run --rm -e SYNOLOGY_HOST=192.168.1.100 -e SYNOLOGY_USERNAME=admin -e SYNOLOGY_PASSWORD=secret \
+  synology-shutdown python synology_shutdown.py --stop-project watchtower
+
+# Get project status
+docker run --rm -e SYNOLOGY_HOST=192.168.1.100 -e SYNOLOGY_USERNAME=admin -e SYNOLOGY_PASSWORD=secret \
+  synology-shutdown python synology_shutdown.py --project-status iot
 ```
 
 ## Shutdown Methods
@@ -218,6 +265,25 @@ docker run --rm \
   -e SYNOLOGY_PASSWORD=secret \
   -e USE_SSH=true \
   synology-shutdown python synology_shutdown.py
+```
+
+### Project Management Examples
+```bash
+# Start all predefined projects before shutdown
+docker run --rm -e SYNOLOGY_HOST=192.168.1.100 -e SYNOLOGY_USERNAME=admin -e SYNOLOGY_PASSWORD=secret \
+  synology-shutdown python synology_shutdown.py --start-projects
+
+# Stop all projects, then shutdown NAS
+docker run --rm -e SYNOLOGY_HOST=192.168.1.100 -e SYNOLOGY_USERNAME=admin -e SYNOLOGY_PASSWORD=secret \
+  synology-shutdown python synology_shutdown.py --stop-projects && \
+docker run --rm -e SYNOLOGY_HOST=192.168.1.100 -e SYNOLOGY_USERNAME=admin -e SYNOLOGY_PASSWORD=secret \
+  synology-shutdown python synology_shutdown.py
+
+# Restart specific project
+docker run --rm -e SYNOLOGY_HOST=192.168.1.100 -e SYNOLOGY_USERNAME=admin -e SYNOLOGY_PASSWORD=secret \
+  synology-shutdown python synology_shutdown.py --stop-project jellyfin && \
+docker run --rm -e SYNOLOGY_HOST=192.168.1.100 -e SYNOLOGY_USERNAME=admin -e SYNOLOGY_PASSWORD=secret \
+  synology-shutdown python synology_shutdown.py --start-project jellyfin
 ```
 
 ### Remote web access

@@ -27,6 +27,15 @@ shutdown_status = {
     'timestamp': None
 }
 
+# Global variables for tracking project management state
+project_status = {
+    'in_progress': False,
+    'success': None,
+    'message': '',
+    'timestamp': None,
+    'results': {}
+}
+
 
 def shutdown_nas_async(config):
     """Perform NAS shutdown in background thread"""
@@ -66,12 +75,56 @@ def shutdown_nas_async(config):
         shutdown_status['message'] = f'Error: {str(e)}'
 
 
+def manage_projects_async(config, action):
+    """Perform project management in background thread"""
+    global project_status
+    
+    try:
+        project_status['in_progress'] = True
+        project_status['message'] = f'{action.capitalize()}ing projects...'
+        project_status['timestamp'] = datetime.now()
+        
+        nas = SynologyShutdown(
+            host=config['host'],
+            username=config['username'],
+            password=config['password'],
+            port=config['port'],
+            use_https=config['use_https']
+        )
+        
+        if nas.login():
+            project_status['message'] = f'{action.capitalize()}ing Docker Compose projects...'
+            results = nas.manage_predefined_projects(action)
+            
+            project_status['success'] = all(results.values())
+            project_status['in_progress'] = False
+            project_status['results'] = results
+            
+            if project_status['success']:
+                project_status['message'] = f'All projects {action}ed successfully'
+            else:
+                failed_projects = [name for name, success in results.items() if not success]
+                project_status['message'] = f'Failed to {action}: {", ".join(failed_projects)}'
+            
+            nas.logout()
+        else:
+            project_status['success'] = False
+            project_status['in_progress'] = False
+            project_status['message'] = 'Failed to login to NAS'
+            
+    except Exception as e:
+        logger.error(f"Project management error: {e}")
+        project_status['success'] = False
+        project_status['in_progress'] = False
+        project_status['message'] = f'Error: {str(e)}'
+
+
 @app.route('/')
 def index():
     """Main page with shutdown button"""
     config = load_config()
     nas_host = config.get('host', 'Not configured')
-    return render_template('index.html', nas_host=nas_host, status=shutdown_status)
+    return render_template('index.html', nas_host=nas_host, status=shutdown_status, project_status=project_status)
 
 
 @app.route('/shutdown', methods=['POST'])
@@ -112,6 +165,52 @@ def shutdown():
 def status():
     """Get current shutdown status"""
     return jsonify(shutdown_status)
+
+
+@app.route('/projects/<action>', methods=['POST'])
+def manage_projects(action):
+    """Handle project start/stop requests"""
+    global project_status
+    
+    if action not in ['start', 'stop']:
+        return jsonify({
+            'success': False,
+            'message': 'Invalid action. Use start or stop.'
+        }), 400
+    
+    if project_status['in_progress']:
+        return jsonify({
+            'success': False,
+            'message': 'Project management already in progress'
+        }), 400
+    
+    config = load_config()
+    
+    # Validate configuration
+    required_fields = ['host', 'username', 'password']
+    missing_fields = [field for field in required_fields if not config.get(field)]
+    
+    if missing_fields:
+        return jsonify({
+            'success': False,
+            'message': f'Missing configuration: {", ".join(missing_fields)}'
+        }), 400
+    
+    # Start project management in background thread
+    project_thread = threading.Thread(target=manage_projects_async, args=(config, action))
+    project_thread.daemon = True
+    project_thread.start()
+    
+    return jsonify({
+        'success': True,
+        'message': f'Project {action} initiated'
+    })
+
+
+@app.route('/project-status')
+def get_project_status():
+    """Get current project management status"""
+    return jsonify(project_status)
 
 
 @app.route('/config')

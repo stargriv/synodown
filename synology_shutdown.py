@@ -119,6 +119,146 @@ class SynologyShutdown:
         logger.error("All API shutdown methods failed")
         return False
     
+    def get_projects(self) -> Optional[Dict]:
+        """Get list of Docker Compose projects"""
+        if not self.session_id:
+            logger.error("Not logged in")
+            return None
+        
+        logger.info("Getting list of Docker Compose projects...")
+        
+        params = {
+            '_sid': self.session_id
+        }
+        
+        result = self._make_request_with_endpoint('entry.cgi', 'SYNO.Docker.Project', 'list', params)
+        if result and result.get('success'):
+            projects = result.get('data', {}).get('projects', [])
+            logger.info(f"Found {len(projects)} projects")
+            return result.get('data', {})
+        
+        logger.error("Failed to get project list")
+        return None
+    
+    def start_project(self, project_name: str = None, project_id: str = None) -> bool:
+        """Start a Docker Compose project by name or ID"""
+        if not self.session_id:
+            logger.error("Not logged in")
+            return False
+        
+        if not project_name and not project_id:
+            logger.error("Either project_name or project_id must be provided")
+            return False
+        
+        # If project_name is provided, find the project_id
+        if project_name and not project_id:
+            projects_data = self.get_projects()
+            if not projects_data:
+                return False
+            
+            projects = projects_data.get('projects', [])
+            for project in projects:
+                if project.get('name') == project_name:
+                    project_id = project.get('id')
+                    break
+            
+            if not project_id:
+                logger.error(f"Project {project_name} not found")
+                return False
+        
+        logger.info(f"Starting project: {project_name or project_id}")
+        
+        params = {
+            '_sid': self.session_id,
+            'id': project_id
+        }
+        
+        result = self._make_request_with_endpoint('entry.cgi', 'SYNO.Docker.Project', 'start_stream', params)
+        if result and result.get('success'):
+            logger.info(f"Project {project_name or project_id} started successfully")
+            return True
+        
+        logger.error(f"Failed to start project {project_name or project_id}: {result}")
+        return False
+    
+    def stop_project(self, project_name: str = None, project_id: str = None) -> bool:
+        """Stop a Docker Compose project by name or ID"""
+        if not self.session_id:
+            logger.error("Not logged in")
+            return False
+        
+        if not project_name and not project_id:
+            logger.error("Either project_name or project_id must be provided")
+            return False
+        
+        # If project_name is provided, find the project_id
+        if project_name and not project_id:
+            projects_data = self.get_projects()
+            if not projects_data:
+                return False
+            
+            projects = projects_data.get('projects', [])
+            for project in projects:
+                if project.get('name') == project_name:
+                    project_id = project.get('id')
+                    break
+            
+            if not project_id:
+                logger.error(f"Project {project_name} not found")
+                return False
+        
+        logger.info(f"Stopping project: {project_name or project_id}")
+        
+        params = {
+            '_sid': self.session_id,
+            'id': project_id
+        }
+        
+        result = self._make_request_with_endpoint('entry.cgi', 'SYNO.Docker.Project', 'stop', params)
+        if result and result.get('success'):
+            logger.info(f"Project {project_name or project_id} stopped successfully")
+            return True
+        
+        logger.error(f"Failed to stop project {project_name or project_id}: {result}")
+        return False
+    
+    def get_project_status(self, project_name: str) -> Optional[str]:
+        """Get status of a specific Docker Compose project"""
+        projects_data = self.get_projects()
+        if not projects_data:
+            return None
+        
+        projects = projects_data.get('projects', [])
+        for project in projects:
+            if project.get('name') == project_name:
+                return project.get('status', 'unknown')
+        
+        logger.warning(f"Project {project_name} not found")
+        return None
+    
+    def manage_predefined_projects(self, action: str) -> Dict[str, bool]:
+        """Start or stop predefined projects: iot, jellyfin, arr-project, watchtower"""
+        predefined_projects = ['iot', 'jellyfin', 'arr-project', 'watchtower']
+        results = {}
+        
+        if action not in ['start', 'stop']:
+            logger.error("Action must be 'start' or 'stop'")
+            return results
+        
+        for project_name in predefined_projects:
+            try:
+                if action == 'start':
+                    success = self.start_project(project_name=project_name)
+                else:
+                    success = self.stop_project(project_name=project_name)
+                
+                results[project_name] = success
+            except Exception as e:
+                logger.error(f"Error {action}ing project {project_name}: {e}")
+                results[project_name] = False
+        
+        return results
+    
     def shutdown_via_ssh(self, ssh_port: int = 22) -> bool:
         """Attempt shutdown via SSH (requires SSH enabled on NAS)"""
         logger.info("Attempting shutdown via SSH...")
@@ -210,7 +350,7 @@ def load_config() -> Dict[str, Any]:
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Shutdown Synology NAS')
+    parser = argparse.ArgumentParser(description='Shutdown Synology NAS and manage Docker Compose projects')
     parser.add_argument('--host', help='Synology NAS IP address or hostname')
     parser.add_argument('--username', help='Admin username')
     parser.add_argument('--password', help='Admin password')
@@ -219,6 +359,14 @@ def main():
     parser.add_argument('--use-ssh', action='store_true', help='Use SSH method for shutdown')
     parser.add_argument('--no-https', action='store_true', help='Use HTTP instead of HTTPS')
     parser.add_argument('--config', help='Path to JSON config file')
+    
+    # Project management arguments
+    parser.add_argument('--start-projects', action='store_true', help='Start predefined Docker Compose projects (iot, jellyfin, arr-project, watchtower)')
+    parser.add_argument('--stop-projects', action='store_true', help='Stop predefined Docker Compose projects (iot, jellyfin, arr-project, watchtower)')
+    parser.add_argument('--list-projects', action='store_true', help='List all Docker Compose projects')
+    parser.add_argument('--start-project', help='Start specific Docker Compose project by name')
+    parser.add_argument('--stop-project', help='Stop specific Docker Compose project by name')
+    parser.add_argument('--project-status', help='Get status of specific Docker Compose project')
     
     args = parser.parse_args()
     
@@ -242,6 +390,78 @@ def main():
     
     nas = SynologyShutdown(host, username, password, port, use_https)
     
+    # Handle project management commands
+    if any([args.start_projects, args.stop_projects, args.list_projects, args.start_project, args.stop_project, args.project_status]):
+        if not nas.login():
+            logger.error("Failed to login to NAS")
+            sys.exit(1)
+        
+        try:
+            if args.list_projects:
+                projects_data = nas.get_projects()
+                if projects_data:
+                    projects = projects_data.get('projects', [])
+                    logger.info(f"Found {len(projects)} Docker Compose projects:")
+                    for project in projects:
+                        name = project.get('name', 'Unknown')
+                        status = project.get('status', 'Unknown')
+                        logger.info(f"  - {name}: {status}")
+                else:
+                    logger.error("Failed to get project list")
+                    sys.exit(1)
+            
+            elif args.start_projects:
+                logger.info("Starting predefined projects...")
+                results = nas.manage_predefined_projects('start')
+                success_count = sum(1 for success in results.values() if success)
+                logger.info(f"Successfully started {success_count}/{len(results)} projects")
+                for project, success in results.items():
+                    status = "✅" if success else "❌"
+                    logger.info(f"  {status} {project}")
+                
+                if not all(results.values()):
+                    sys.exit(1)
+            
+            elif args.stop_projects:
+                logger.info("Stopping predefined projects...")
+                results = nas.manage_predefined_projects('stop')
+                success_count = sum(1 for success in results.values() if success)
+                logger.info(f"Successfully stopped {success_count}/{len(results)} projects")
+                for project, success in results.items():
+                    status = "✅" if success else "❌"
+                    logger.info(f"  {status} {project}")
+                
+                if not all(results.values()):
+                    sys.exit(1)
+            
+            elif args.start_project:
+                if nas.start_project(project_name=args.start_project):
+                    logger.info(f"Project {args.start_project} started successfully")
+                else:
+                    logger.error(f"Failed to start project {args.start_project}")
+                    sys.exit(1)
+            
+            elif args.stop_project:
+                if nas.stop_project(project_name=args.stop_project):
+                    logger.info(f"Project {args.stop_project} stopped successfully")
+                else:
+                    logger.error(f"Failed to stop project {args.stop_project}")
+                    sys.exit(1)
+            
+            elif args.project_status:
+                status = nas.get_project_status(args.project_status)
+                if status:
+                    logger.info(f"Project {args.project_status} status: {status}")
+                else:
+                    logger.error(f"Could not get status for project {args.project_status}")
+                    sys.exit(1)
+        
+        finally:
+            nas.logout()
+        
+        sys.exit(0)
+    
+    # Default behavior: shutdown NAS
     if nas.shutdown(use_ssh, ssh_port):
         logger.info("NAS shutdown initiated successfully")
         sys.exit(0)
