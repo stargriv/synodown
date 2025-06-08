@@ -124,7 +124,36 @@ def index():
     """Main page with shutdown button"""
     config = load_config()
     nas_host = config.get('host', 'Not configured')
-    return render_template('index.html', nas_host=nas_host, status=shutdown_status, project_status=project_status)
+    
+    # Get current project statuses
+    current_projects = {}
+    try:
+        nas = SynologyShutdown(
+            host=config['host'],
+            username=config['username'],
+            password=config['password'],
+            port=config['port'],
+            use_https=config['use_https']
+        )
+        
+        if nas.login():
+            projects_data = nas.get_projects()
+            if projects_data:
+                projects = projects_data.get('projects', [])
+                predefined_projects = ['iot', 'jellyfin', 'arr-project', 'watchtower']
+                for project in projects:
+                    name = project.get('name', '')
+                    if name in predefined_projects:
+                        current_projects[name] = project.get('status', 'unknown')
+            nas.logout()
+    except Exception as e:
+        logger.warning(f"Could not fetch project statuses: {e}")
+    
+    return render_template('index.html', 
+                         nas_host=nas_host, 
+                         status=shutdown_status, 
+                         project_status=project_status,
+                         current_projects=current_projects)
 
 
 @app.route('/shutdown', methods=['POST'])
@@ -223,6 +252,37 @@ def config_page():
         safe_config['password'] = '••••••••' if config['password'] else ''
     
     return render_template('config.html', config=safe_config)
+
+
+@app.route('/current-projects')
+def current_projects():
+    """Get current project statuses"""
+    config = load_config()
+    current_projects = {}
+    
+    try:
+        nas = SynologyShutdown(
+            host=config['host'],
+            username=config['username'],
+            password=config['password'],
+            port=config['port'],
+            use_https=config['use_https']
+        )
+        
+        if nas.login():
+            projects_data = nas.get_projects()
+            if projects_data:
+                projects = projects_data.get('projects', [])
+                predefined_projects = ['iot', 'jellyfin', 'arr-project', 'watchtower']
+                for project in projects:
+                    name = project.get('name', '')
+                    if name in predefined_projects:
+                        current_projects[name] = project.get('status', 'unknown')
+            nas.logout()
+    except Exception as e:
+        logger.warning(f"Could not fetch project statuses: {e}")
+    
+    return jsonify(current_projects)
 
 
 @app.route('/health')

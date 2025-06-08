@@ -52,7 +52,7 @@ class SynologyShutdown:
             logger.error(f"API request failed: {e}")
             return None
     
-    def _make_request_with_endpoint(self, endpoint: str, api: str, method: str, params: Dict[str, Any]) -> Optional[Dict]:
+    def _make_request_with_endpoint(self, endpoint: str, api: str, method: str, params: Dict[str, Any], use_post: bool = False) -> Optional[Dict]:
         """Make API request to Synology DSM with specific endpoint"""
         url = f"{self.base_url}/webapi/{endpoint}"
         params.update({
@@ -62,9 +62,39 @@ class SynologyShutdown:
         })
         
         try:
-            response = requests.get(url, params=params, verify=False, timeout=30)
+            if use_post:
+                # Handle special case for Docker Project API with quoted IDs
+                if api == 'SYNO.Docker.Project' and any('id' in key for key in params.keys()):
+                    # Build the data string manually to avoid double URL encoding
+                    data_parts = []
+                    for key, value in params.items():
+                        if key == 'id' and value.startswith('%22'):
+                            # Don't encode the pre-encoded ID
+                            data_parts.append(f"{key}={value}")
+                        else:
+                            data_parts.append(f"{key}={value}")
+                    data_string = "&".join(data_parts)
+                    response = requests.post(url, data=data_string, 
+                                           headers={'Content-Type': 'application/x-www-form-urlencoded'},
+                                           verify=False, timeout=30)
+                else:
+                    response = requests.post(url, data=params, verify=False, timeout=30)
+            else:
+                response = requests.get(url, params=params, verify=False, timeout=30)
             response.raise_for_status()
-            return response.json()
+            
+            # Handle special case for start_stream which may return non-JSON
+            if api == 'SYNO.Docker.Project' and method == 'start_stream':
+                # start_stream may return plain text, not JSON
+                try:
+                    return response.json()
+                except (ValueError, requests.exceptions.JSONDecodeError):
+                    # start_stream returned non-JSON (likely plain text logs)
+                    # This is actually normal and means the operation may have succeeded
+                    logger.info(f"start_stream returned non-JSON response (this is normal): {response.text[:100]}")
+                    return None  # Will be handled by the status check logic
+            else:
+                return response.json()
         except requests.RequestException as e:
             logger.error(f"API request failed: {e}")
             return None
@@ -175,12 +205,63 @@ class SynologyShutdown:
             'id': project_id
         }
         
-        result = self._make_request_with_endpoint('entry.cgi', 'SYNO.Docker.Project', 'start_stream', params)
+        # Check if project is already running
+        projects_data = self.get_projects()
+        if projects_data:
+            projects = projects_data.get('projects', [])
+            for project in projects:
+                if project.get('name') == project_name:
+                    current_status = project.get('status', 'unknown')
+                    if current_status == 'RUNNING':
+                        logger.info(f"Project {project_name} is already running")
+                        return True
+                    logger.info(f"Current status of {project_name}: {current_status}")
+                    break
+        
+        # Use the exact format from the user's hint
+        # api=SYNO.Docker.Project&method=start_stream&version=1&id=%225730670e-be4a-4f00-84b3-22a3b473a4e8%22
+        import urllib.parse
+        quoted_id = f'%22{project_id}%22'  # URL-encoded quotes around the ID
+        
+        logger.info(f"Trying start_stream method with quoted ID format for project {project_name or project_id}")
+        
+        # Use start_stream with properly formatted ID (user's exact format)
+        stream_params = {
+            '_sid': self.session_id,
+            'id': quoted_id
+        }
+        
+        result = self._make_request_with_endpoint('entry.cgi', 'SYNO.Docker.Project', 'start_stream', stream_params, use_post=True)
+        
+        # start_stream may return different response format or no JSON response
+        if result is None:
+            # start_stream might not return JSON, check if project started by re-querying
+            import time
+            time.sleep(3)  # Give it more time to start
+            projects_data = self.get_projects()
+            if projects_data:
+                projects = projects_data.get('projects', [])
+                for project in projects:
+                    if project.get('name') == project_name:
+                        new_status = project.get('status', 'unknown')
+                        if new_status == 'RUNNING':
+                            logger.info(f"Project {project_name} started successfully using start_stream (verified by status check)")
+                            return True
+                        break
+        elif result and result.get('success'):
+            logger.info(f"Project {project_name or project_id} started successfully using start_stream")
+            return True
+        elif result:
+            error_code = result.get('error', {}).get('code')
+            logger.warning(f"start_stream failed with error code {error_code}: {result}")
+        
+        logger.info(f"start_stream did not work, trying regular start method for project {project_name or project_id}")
+        result = self._make_request_with_endpoint('entry.cgi', 'SYNO.Docker.Project', 'start', params, use_post=True)
         if result and result.get('success'):
-            logger.info(f"Project {project_name or project_id} started successfully")
+            logger.info(f"Project {project_name or project_id} started successfully using regular start")
             return True
         
-        logger.error(f"Failed to start project {project_name or project_id}: {result}")
+        logger.error(f"Failed to start project {project_name or project_id} with all methods")
         return False
     
     def stop_project(self, project_name: str = None, project_id: str = None) -> bool:
@@ -216,12 +297,47 @@ class SynologyShutdown:
             'id': project_id
         }
         
-        result = self._make_request_with_endpoint('entry.cgi', 'SYNO.Docker.Project', 'stop', params)
-        if result and result.get('success'):
-            logger.info(f"Project {project_name or project_id} stopped successfully")
-            return True
+        # Check if project is already stopped
+        projects_data = self.get_projects()
+        if projects_data:
+            projects = projects_data.get('projects', [])
+            for project in projects:
+                if project.get('name') == project_name:
+                    current_status = project.get('status', 'unknown')
+                    if current_status == 'STOPPED':
+                        logger.info(f"Project {project_name} is already stopped")
+                        return True
+                    logger.info(f"Current status of {project_name}: {current_status}")
+                    break
         
-        logger.error(f"Failed to stop project {project_name or project_id}: {result}")
+        # Use the same quoted ID format as start_stream for consistency
+        quoted_id = f'%22{project_id}%22'  # URL-encoded quotes around the ID
+        
+        logger.info(f"Trying stop method with quoted ID format for project {project_name or project_id}")
+        
+        # Use stop with properly formatted ID (same format as start_stream)
+        quoted_params = {
+            '_sid': self.session_id,
+            'id': quoted_id
+        }
+        
+        result = self._make_request_with_endpoint('entry.cgi', 'SYNO.Docker.Project', 'stop', quoted_params, use_post=True)
+        if result and result.get('success'):
+            logger.info(f"Project {project_name or project_id} stopped successfully using quoted ID format")
+            return True
+        elif result:
+            logger.warning(f"Stop method with quoted ID failed: {result}")
+        
+        # Fallback to regular stop method
+        logger.info(f"Trying fallback stop method for project {project_name or project_id}")
+        result = self._make_request_with_endpoint('entry.cgi', 'SYNO.Docker.Project', 'stop', params, use_post=True)
+        if result and result.get('success'):
+            logger.info(f"Project {project_name or project_id} stopped successfully using regular method")
+            return True
+        elif result:
+            logger.warning(f"Regular stop method failed: {result}")
+        
+        logger.error(f"Failed to stop project {project_name or project_id} with all methods")
         return False
     
     def get_project_status(self, project_name: str) -> Optional[str]:
