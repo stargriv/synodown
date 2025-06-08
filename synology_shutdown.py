@@ -133,9 +133,11 @@ class SynologyShutdown:
         
         result = self._make_request_with_endpoint('entry.cgi', 'SYNO.Docker.Project', 'list', params)
         if result and result.get('success'):
-            projects = result.get('data', {}).get('projects', [])
+            data = result.get('data', {})
+            # Projects are returned as a dictionary with project IDs as keys
+            projects = list(data.values()) if isinstance(data, dict) else []
             logger.info(f"Found {len(projects)} projects")
-            return result.get('data', {})
+            return {'projects': projects}
         
         logger.error("Failed to get project list")
         return None
