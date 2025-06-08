@@ -44,6 +44,7 @@
         {% endif %}
     </div>
     
+    
     <h3>NAS Management</h3>
     <button id="shutdown-btn" class="btn" onclick="initiateShutdown()">
         <span id="shutdown-text">🔴 Shutdown NAS</span>
@@ -53,12 +54,24 @@
 <div class="status-card warning" style="text-align: left;">
     <h4>ℹ️ Information</h4>
     <p><strong>Project Management:</strong> Start/stop the following Docker Compose projects:</p>
-    <ul style="margin: 0.5rem 0 0 1.5rem;">
-        <li><strong>iot</strong> - IoT services and automation</li>
-        <li><strong>jellyfin</strong> - Media server</li>
-        <li><strong>arr-project</strong> - Media management stack</li>
-        <li><strong>watchtower</strong> - Container update management</li>
-    </ul>
+    <div style="margin: 0.5rem 0 0 1.5rem;">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0;">
+            <strong>iot</strong>
+            {% if current_projects.get('iot') %}<span style="font-weight: bold; color: {% if current_projects['iot'] == 'RUNNING' %}#28a745{% else %}#6c757d{% endif %};">{{ current_projects['iot'] }}</span>{% endif %}
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0;">
+            <strong>jellyfin</strong>
+            {% if current_projects.get('jellyfin') %}<span style="font-weight: bold; color: {% if current_projects['jellyfin'] == 'RUNNING' %}#28a745{% else %}#6c757d{% endif %};">{{ current_projects['jellyfin'] }}</span>{% endif %}
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0;">
+            <strong>arr-project</strong>
+            {% if current_projects.get('arr-project') %}<span style="font-weight: bold; color: {% if current_projects['arr-project'] == 'RUNNING' %}#28a745{% else %}#6c757d{% endif %};">{{ current_projects['arr-project'] }}</span>{% endif %}
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 0.25rem 0;">
+            <strong>watchtower</strong>
+            {% if current_projects.get('watchtower') %}<span style="font-weight: bold; color: {% if current_projects['watchtower'] == 'RUNNING' %}#28a745{% else %}#6c757d{% endif %};">{{ current_projects['watchtower'] }}</span>{% endif %}
+        </div>
+    </div>
     
     <p><strong>NAS Shutdown:</strong> This will safely shutdown your Synology NAS. Make sure:</p>
     <ul style="margin: 0.5rem 0 0 1.5rem;">
@@ -264,10 +277,12 @@ function showError(message) {
     `;
 }
 
+
 // Auto-update status on page load if there's an active shutdown or project management
 document.addEventListener('DOMContentLoaded', function() {
     updateStatus();
     updateProjectStatus();
+    // Removed automatic project status updates - now only updates on page refresh
 });
 </script>
 {% endblock %}
